@@ -1,2 +1,6 @@
-package tn.iteam.hrprojectbackend.chat.dto;public record ChatRequest() {
+package tn.iteam.hrprojectbackend.chat.dto;
+
+import jakarta.validation.constraints.NotBlank;
+
+public record ChatRequest(@NotBlank String message) {
 }

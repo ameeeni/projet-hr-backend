@@ -1,2 +1,4 @@
-package tn.iteam.hrprojectbackend.chat.dto;public record ChatResponse() {
+package tn.iteam.hrprojectbackend.chat.dto;
+
+public record ChatResponse(String answer) {
 }

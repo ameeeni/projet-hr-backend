@@ -1,2 +1,4 @@
-package tn.iteam.hrprojectbackend.common.exception;public class ValidationException {
+package tn.iteam.hrprojectbackend.common.exception;
+
+public class ValidationException {
 }

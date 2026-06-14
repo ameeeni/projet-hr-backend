@@ -1,2 +1,8 @@
-package tn.iteam.hrprojectbackend.common.exception;public class UnauthorizedException {
+package tn.iteam.hrprojectbackend.common.exception;
+
+public class UnauthorizedException extends RuntimeException {
+
+    public UnauthorizedException(String message) {
+        super(message);
+    }
 }
