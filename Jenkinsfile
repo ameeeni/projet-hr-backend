@@ -339,11 +339,15 @@ pipeline {
     // ── POST-PIPELINE ─────────────────────────────────────────────────────────
     post {
         always {
-            sh 'docker logout || true'
-            cleanWs()
+            // sh n'est pas utilisé ici car le contexte workspace peut être perdu
+            // après des stages parallèles — docker logout est géré dans stage 8
+            cleanWs(cleanWhenNotBuilt: false,
+                    deleteDirs: true,
+                    disableDeferredWipeout: true,
+                    notFailBuild: true)
         }
         success {
-            echo "Pipeline réussie — ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}"
+            echo "Pipeline réussie — image tag: ${env.IMAGE_TAG ?: 'N/A'}"
         }
         failure {
             echo "Pipeline échouée — Vérifier les logs ci-dessus"
