@@ -24,6 +24,18 @@
 		<mapstruct.version>1.5.5.Final</mapstruct.version>
 		<lombok.version>1.18.36</lombok.version>
 		<spring-ai.version>1.1.0</spring-ai.version>
+
+		<!-- ───────── SONARQUBE ───────── -->
+		<sonar.projectKey>hr-project-backend</sonar.projectKey>
+		<sonar.projectName>HR Project Backend</sonar.projectName>
+		<sonar.host.url>http://localhost:9000</sonar.host.url>
+		<sonar.sources>src/main/java</sonar.sources>
+		<sonar.tests>src/test/java</sonar.tests>
+		<sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
+		<sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+		<sonar.exclusions>**/dto/**,**/entities/**,**/events/**,**/*MapperImpl.java,**/HrProjectBackendApplication.java,**/config/**</sonar.exclusions>
+		<sonar.coverage.exclusions>**/dto/**,**/entities/**,**/events/**,**/*MapperImpl.java,**/HrProjectBackendApplication.java,**/config/**</sonar.coverage.exclusions>
+		<sonar.sourceEncoding>UTF-8</sonar.sourceEncoding>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -181,6 +193,13 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- H2 pour les tests -->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>test</scope>
+		</dependency>
+
 	</dependencies>
 
 	<build>
@@ -198,6 +217,64 @@
 						</exclude>
 					</excludes>
 				</configuration>
+			</plugin>
+
+			<!-- ───────── JACOCO PLUGIN ───────── -->
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.12</version>
+				<configuration>
+					<excludes>
+						<exclude>**/*MapperImpl.class</exclude>
+						<exclude>**/HrProjectBackendApplication.class</exclude>
+						<exclude>**/dto/**</exclude>
+						<exclude>**/entities/**</exclude>
+						<exclude>**/events/**</exclude>
+					</excludes>
+				</configuration>
+				<executions>
+					<execution>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>check</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<limit>
+											<counter>INSTRUCTION</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.80</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+
+			<!-- ───────── SONAR PLUGIN ───────── -->
+			<plugin>
+				<groupId>org.sonarsource.scanner.maven</groupId>
+				<artifactId>sonar-maven-plugin</artifactId>
+				<version>4.0.0.4121</version>
 			</plugin>
 
 			<!-- ───────── COMPILER PLUGIN ───────── -->

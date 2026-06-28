@@ -1,7 +1,7 @@
 # ─── JWT (partagé avec le service IAM) ───────────────────────────────────────
 jwt:
-  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-  expiration: 3600000
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:3600000}
 
 server:
   port: 8080
@@ -35,9 +35,9 @@ spring:
       client:
         enabled: false
   datasource:
-    url: jdbc:postgresql://localhost:5432/hr_db
-    username: hr_user
-    password: hr_password
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/hr_db}
+    username: ${DB_USERNAME:hr_user}
+    password: ${DB_PASSWORD:hr_password}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -46,7 +46,7 @@ spring:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
 
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer

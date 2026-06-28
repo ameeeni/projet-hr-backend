@@ -15,6 +15,7 @@ import tn.iteam.hrprojectbackend.users.repository.TeamRepository;
 import tn.iteam.hrprojectbackend.users.repository.UserRepository;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 @RequiredArgsConstructor
@@ -26,21 +27,22 @@ public class DashboardService {
     private final TeamRepository teamRepository;
     private final LeaveRepository leaveRepository;
 
-    private volatile DashboardStatsDto cachedStats = null;
-
+    private final AtomicReference<DashboardStatsDto> cachedStats = new AtomicReference<>();
 
     public DashboardStatsDto getStats() {
-        if (cachedStats == null) {
+        DashboardStatsDto stats = cachedStats.get();
+        if (stats == null) {
             log.info(">>> Dashboard : calcul initial des stats");
-            cachedStats = computeStats();
+            DashboardStatsDto computed = computeStats();
+            cachedStats.compareAndSet(null, computed);
+            stats = cachedStats.get();
         }
-        return cachedStats;
+        return stats;
     }
-
 
     public void refreshStats() {
         log.info(">>> Dashboard : rafraîchissement via événement Kafka");
-        cachedStats = computeStats();
+        cachedStats.set(computeStats());
     }
 
     private DashboardStatsDto computeStats() {
