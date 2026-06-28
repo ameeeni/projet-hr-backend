@@ -1,270 +1,109 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  HR Project — Pipeline CI/CD Jenkins
-//  Prérequis Jenkins (plugins) :
-//    - Pipeline, Git, Credentials Binding
-//    - SonarQube Scanner, Sonar Quality Gates
-//    - JaCoCo, HTML Publisher, Coverage
-//    - Docker Pipeline
-//  Prérequis Tools (Manage Jenkins > Global Tool Configuration) :
-//    - Maven  : nom "Maven-3.9"
-//    - JDK    : nom "JDK-17"
-//    - NodeJS : nom "Node-22"
-//  Credentials Jenkins (Manage Jenkins > Credentials) :
-//    - jwt-secret           → Secret text       → valeur du JWT_SECRET
-//    - sonarqube-token      → Secret text       → token SonarQube
-//    - dockerhub-credentials→ Username/Password → Docker Hub
-//    - github-credentials   → Username/Password → GitHub (si repos privés)
-//    - db-password          → Secret text       → mot de passe PostgreSQL prod
-//    - gcp-service-account  → Secret file       → clé JSON Vertex AI
-//  SonarQube (Manage Jenkins > Configure System > SonarQube servers) :
-//    - Name : SonarQube | URL : http://localhost:9000 | Token : sonarqube-token
-//    - Webhook dans SonarQube : http://<jenkins-url>/sonarqube-webhook/
-// ─────────────────────────────────────────────────────────────────────────────
-
 pipeline {
     agent any
 
-    // ── Variables d'environnement globales ────────────────────────────────────
     environment {
-        // Docker Hub
         DOCKER_REGISTRY = 'ichahbani'
-        BACKEND_IMAGE   = "${DOCKER_REGISTRY}/hr-backend"
-        FRONTEND_IMAGE  = "${DOCKER_REGISTRY}/hr-frontend"
-
-        // SonarQube — token chargé uniquement dans le stage qui en a besoin
-        SONAR_HOST_URL = 'http://localhost:9000'
-
-        // Maven
-        MAVEN_OPTS = '-Xmx512m -XX:+TieredCompilation -XX:TieredStopAtLevel=1'
+        IMAGE_NAME      = "${DOCKER_REGISTRY}/hr-backend"
+        SONAR_HOST_URL  = 'http://host.docker.internal:9000'
+        MAVEN_OPTS      = '-Xmx512m -XX:+TieredCompilation -XX:TieredStopAtLevel=1'
     }
 
-    // ── Options globales ──────────────────────────────────────────────────────
     options {
         timestamps()
-        timeout(time: 60, unit: 'MINUTES')
+        timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
-        buildDiscarder(logRotator(numToKeepStr: '10', artifactNumToKeepStr: '5'))
+        buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
-    // ── Paramètres de lancement manuel ────────────────────────────────────────
     parameters {
-        string(
-            name: 'FRONTEND_REPO',
-            defaultValue: 'https://github.com/ameeeni/hr-frontend-project.git',
-            description: 'URL Git du dépôt frontend Angular'
-        )
-        string(
-            name: 'FRONTEND_BRANCH',
-            defaultValue: 'main',
-            description: 'Branche frontend à construire'
-        )
-        booleanParam(
-            name: 'PUSH_TO_REGISTRY',
-            defaultValue: true,
-            description: 'Publier les images sur Docker Hub'
-        )
-        booleanParam(
-            name: 'DEPLOY',
-            defaultValue: true,
-            description: 'Déployer automatiquement (seulement sur main)'
-        )
-        booleanParam(
-            name: 'SKIP_SONAR',
-            defaultValue: false,
-            description: 'Ignorer SonarQube (usage développement uniquement)'
-        )
+        booleanParam(name: 'SKIP_SONAR',    defaultValue: false, description: 'Ignorer SonarQube')
+        booleanParam(name: 'PUSH_TO_REGISTRY', defaultValue: false, description: 'Publier sur Docker Hub')
+        booleanParam(name: 'DEPLOY',        defaultValue: false, description: 'Déployer')
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
     stages {
 
-        // ── STAGE 1 : CHECKOUT ───────────────────────────────────────────────
         stage('1 — Checkout') {
             steps {
                 script {
-                    def commit      = env.GIT_COMMIT ?: 'nogit'
+                    def commit = env.GIT_COMMIT ?: 'nogit'
                     env.SHORT_COMMIT = commit.length() > 7 ? commit.substring(0, 7) : commit
-                    env.IMAGE_TAG   = "${env.BUILD_NUMBER}-${env.SHORT_COMMIT}"
-                    env.BRANCH      = (env.GIT_BRANCH ?: 'main').replaceAll('origin/', '')
+                    env.IMAGE_TAG    = "${env.BUILD_NUMBER}-${env.SHORT_COMMIT}"
+                    env.BRANCH       = (env.GIT_BRANCH ?: 'main').replaceAll('origin/', '')
                 }
+                echo "Build #${env.BUILD_NUMBER} | Branch: ${env.BRANCH} | Tag: ${env.IMAGE_TAG}"
+            }
+        }
 
-                echo "╔══════════════════════════════════════╗"
-                echo "║  HR Project — Pipeline CI/CD          ║"
-                echo "╠══════════════════════════════════════╣"
-                echo "║  Branch  : ${env.BRANCH}"
-                echo "║  Commit  : ${env.SHORT_COMMIT}"
-                echo "║  Tag     : ${env.IMAGE_TAG}"
-                echo "║  Build   : #${env.BUILD_NUMBER}"
-                echo "╚══════════════════════════════════════╝"
+        stage('2 — Build Maven') {
+            steps {
+                sh 'mvn clean compile -s mvn-settings.xml -B -q'
+            }
+        }
 
-                // Checkout du frontend dans un sous-dossier
-                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    dir('frontend') {
-                        git(
-                            url:           params.FRONTEND_REPO,
-                            branch:        params.FRONTEND_BRANCH,
-                            credentialsId: 'github-credentials'
-                        )
-                    }
+        stage('3 — Tests & Coverage') {
+            steps {
+                sh 'mvn verify -s mvn-settings.xml -B'
+            }
+            post {
+                always {
+                    junit(testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true)
+                    archiveArtifacts(artifacts: 'target/*.jar', fingerprint: true, allowEmptyArchive: true)
                 }
             }
         }
 
-        // ── STAGES 2+3 et 4+5 en PARALLÈLE ──────────────────────────────────
-        stage('Build & Test') {
-            parallel {
-
-                // ── STAGE 2+3 : BACKEND BUILD + TESTS ────────────────────────
-                stage('2+3 — Backend Build & Tests') {
-                    stages {
-
-                        stage('2 — Backend Build Maven') {
-                            steps {
-                                sh 'mvn clean compile -s mvn-settings.xml -B -q'
-                            }
-                        }
-
-                        stage('3 — Backend Tests & Coverage') {
-                            steps {
-                                sh 'mvn verify -s mvn-settings.xml -B'
-                            }
-                            post {
-                                always {
-                                    junit(
-                                        testResults:       '**/target/surefire-reports/*.xml',
-                                        allowEmptyResults: true
-                                    )
-                                    archiveArtifacts(
-                                        artifacts:         'target/*.jar',
-                                        fingerprint:       true,
-                                        allowEmptyArchive: true
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── STAGE 4+5 : FRONTEND INSTALL + TESTS ─────────────────────
-                stage('4+5 — Frontend Install & Tests') {
-                    stages {
-
-                        stage('4 — Frontend npm install') {
-                            steps {
-                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                                    dir('frontend') {
-                                        sh 'npm ci --prefer-offline'
-                                    }
-                                }
-                            }
-                        }
-
-                        stage('5 — Frontend Tests & Coverage') {
-                            steps {
-                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                                    dir('frontend') {
-                                        sh 'npm run test:coverage -- --passWithNoTests'
-                                    }
-                                }
-                            }
-                            post {
-                                always {
-                                    publishHTML([
-                                        allowMissing:         true,
-                                        alwaysLinkToLastBuild: true,
-                                        keepAll:              true,
-                                        reportDir:            'frontend/coverage',
-                                        reportFiles:          'index.html',
-                                        reportName:           'Frontend Coverage',
-                                        reportTitles:         'Angular Coverage'
-                                    ])
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── STAGE 6 : SONARQUBE ANALYSIS ─────────────────────────────────────
-        stage('6 — SonarQube Analysis') {
-            when {
-                not { expression { return params.SKIP_SONAR } }
-            }
+        stage('4 — SonarQube') {
+            when { not { expression { return params.SKIP_SONAR } } }
             steps {
                 withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
                     withSonarQubeEnv('SonarQube') {
                         sh '''
                             mvn sonar:sonar -s mvn-settings.xml -B \
-                                -Dsonar.token="$SONAR_TOKEN" \
-                                -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
+                                -Dsonar.token="$SONAR_TOKEN"
                         '''
                     }
                 }
             }
         }
 
-        stage('6b — Quality Gate') {
-            when {
-                not { expression { return params.SKIP_SONAR } }
-            }
+        stage('5 — Quality Gate') {
+            when { not { expression { return params.SKIP_SONAR } } }
             steps {
                 script {
                     withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
-                        def qgStatus = sh(
+                        sleep 10
+                        def qg = sh(
                             script: '''
-                                sleep 10
                                 curl -s -u "$SONAR_TOKEN:" \
-                                    "http://localhost:9000/api/qualitygates/project_status?projectKey=hr-project-backend" \
+                                    "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=hr-project-backend" \
                                     | grep -o '"status":"[^"]*"' | head -1
                             ''',
                             returnStdout: true
                         ).trim()
-                        echo "Quality Gate : ${qgStatus}"
-                        if (qgStatus.contains('ERROR')) {
-                            error("Quality Gate FAILED — ${qgStatus}")
+                        echo "Quality Gate : ${qg}"
+                        if (qg.contains('ERROR')) {
+                            error("Quality Gate FAILED")
                         }
                     }
                 }
             }
         }
 
-        // ── STAGE 7 : DOCKER BUILD ────────────────────────────────────────────
-        stage('7 — Docker Build') {
-            parallel {
-
-                stage('Build Backend Image') {
-                    steps {
-                        sh """
-                            docker build \
-                                --build-arg BUILD_DATE=\$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-                                --build-arg VCS_REF=${env.SHORT_COMMIT} \
-                                -t ${BACKEND_IMAGE}:${env.IMAGE_TAG} \
-                                -t ${BACKEND_IMAGE}:latest \
-                                .
-                        """
-                    }
-                }
-
-                stage('Build Frontend Image') {
-                    steps {
-                        dir('frontend') {
-                            sh """
-                                docker build \
-                                    --build-arg BUILD_DATE=\$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-                                    --build-arg VCS_REF=${env.SHORT_COMMIT} \
-                                    -t ${FRONTEND_IMAGE}:${env.IMAGE_TAG} \
-                                    -t ${FRONTEND_IMAGE}:latest \
-                                    .
-                            """
-                        }
-                    }
-                }
+        stage('6 — Docker Build') {
+            steps {
+                sh """
+                    docker build \
+                        --build-arg BUILD_DATE=\$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+                        --build-arg VCS_REF=${env.SHORT_COMMIT} \
+                        -t ${IMAGE_NAME}:${env.IMAGE_TAG} \
+                        -t ${IMAGE_NAME}:latest \
+                        .
+                """
             }
         }
 
-        // ── STAGE 8 : DOCKER PUSH ─────────────────────────────────────────────
-        stage('8 — Docker Push') {
+        stage('7 — Docker Push') {
             when {
                 allOf {
                     expression { return env.BRANCH == 'main' }
@@ -277,25 +116,17 @@ pipeline {
                     usernameVariable: 'DOCKER_USER',
                     passwordVariable: 'DOCKER_PASS'
                 )]) {
-                    sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
-
-                    sh """
-                        docker push ${BACKEND_IMAGE}:${env.IMAGE_TAG}
-                        docker push ${BACKEND_IMAGE}:latest
-                        docker push ${FRONTEND_IMAGE}:${env.IMAGE_TAG}
-                        docker push ${FRONTEND_IMAGE}:latest
-                    """
-                }
-            }
-            post {
-                always {
-                    sh 'docker logout || true'
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker push ''' + IMAGE_NAME + ''':''' + env.IMAGE_TAG + '''
+                        docker push ''' + IMAGE_NAME + ''':latest
+                        docker logout
+                    '''
                 }
             }
         }
 
-        // ── STAGE 9 : DEPLOY ──────────────────────────────────────────────────
-        stage('9 — Deploy') {
+        stage('8 — Deploy') {
             when {
                 allOf {
                     expression { return env.BRANCH == 'main' }
@@ -305,60 +136,33 @@ pipeline {
             }
             steps {
                 withCredentials([
-                    string(credentialsId: 'db-password',        variable: 'DB_PASSWORD'),
-                    string(credentialsId: 'jwt-secret',         variable: 'JWT_SECRET_DEPLOY'),
+                    string(credentialsId: 'db-password',   variable: 'DB_PASSWORD'),
+                    string(credentialsId: 'jwt-secret',    variable: 'JWT_SECRET'),
                     file(credentialsId:   'gcp-service-account', variable: 'GCP_KEY_FILE')
                 ]) {
                     sh """
                         cp "\$GCP_KEY_FILE" ./gcp-key.json
-
-                        DOCKER_REGISTRY=${DOCKER_REGISTRY} \
-                        IMAGE_TAG=${env.IMAGE_TAG} \
-                        JWT_SECRET="\$JWT_SECRET_DEPLOY" \
-                        DB_PASSWORD="\$DB_PASSWORD" \
-                        GCP_KEY_PATH=./gcp-key.json \
-                        docker compose -f docker-compose.prod.yml pull
-
-                        DOCKER_REGISTRY=${DOCKER_REGISTRY} \
-                        IMAGE_TAG=${env.IMAGE_TAG} \
-                        JWT_SECRET="\$JWT_SECRET_DEPLOY" \
-                        DB_PASSWORD="\$DB_PASSWORD" \
+                        DOCKER_REGISTRY=${DOCKER_REGISTRY} IMAGE_TAG=${env.IMAGE_TAG} \
+                        JWT_SECRET="\$JWT_SECRET" DB_PASSWORD="\$DB_PASSWORD" \
                         GCP_KEY_PATH=./gcp-key.json \
                         docker compose -f docker-compose.prod.yml up -d --remove-orphans
-
                         docker image prune -f
                         rm -f ./gcp-key.json
                     """
                 }
-
-                echo "Déploiement réussi — http://localhost:80"
+                echo "Backend déployé — http://localhost:8080"
             }
         }
     }
 
-    // ── POST-PIPELINE ─────────────────────────────────────────────────────────
     post {
         always {
             script {
-                // cleanWs peut échouer si le node n'est plus disponible (ex: crash précoce)
-                try {
-                    cleanWs(cleanWhenNotBuilt: false,
-                            deleteDirs: true,
-                            disableDeferredWipeout: true,
-                            notFailBuild: true)
-                } catch (ignored) {
-                    echo "Nettoyage workspace ignoré (pas de contexte node)"
-                }
+                try { cleanWs() } catch (ignored) { echo "cleanWs ignoré" }
             }
         }
-        success {
-            echo "Pipeline réussie — image tag: ${env.IMAGE_TAG ?: 'N/A'}"
-        }
-        failure {
-            echo "Pipeline échouée — Vérifier les logs ci-dessus"
-        }
-        unstable {
-            echo "Pipeline instable — Qualité ou tests à corriger"
-        }
+        success  { echo "Backend pipeline réussie — tag: ${env.IMAGE_TAG ?: 'N/A'}" }
+        failure  { echo "Backend pipeline échouée" }
+        unstable { echo "Backend pipeline instable" }
     }
 }
