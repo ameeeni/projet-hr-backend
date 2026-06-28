@@ -31,11 +31,7 @@ pipeline {
         BACKEND_IMAGE   = "${DOCKER_REGISTRY}/hr-backend"
         FRONTEND_IMAGE  = "${DOCKER_REGISTRY}/hr-frontend"
 
-        // Credentials — disponibles comme variables d'env dans tous les sh
-        JWT_SECRET  = credentials('jwt-secret')
-        SONAR_TOKEN = credentials('sonarqube-token')
-
-        // SonarQube
+        // SonarQube — token chargé uniquement dans le stage qui en a besoin
         SONAR_HOST_URL = 'http://localhost:9000'
 
         // Maven
@@ -192,38 +188,38 @@ pipeline {
                 not { expression { return params.SKIP_SONAR } }
             }
             steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh '''
-                        mvn sonar:sonar -s mvn-settings.xml -B \
-                            -Dsonar.token="$SONAR_TOKEN" \
-                            -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
-                    '''
+                withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                    withSonarQubeEnv('SonarQube') {
+                        sh '''
+                            mvn sonar:sonar -s mvn-settings.xml -B \
+                                -Dsonar.token="$SONAR_TOKEN" \
+                                -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
+                        '''
+                    }
                 }
             }
         }
 
         stage('6b — Quality Gate') {
             when {
-                allOf {
-                    not { expression { return params.SKIP_SONAR } }
-                    expression { return !params.SKIP_SONAR }
-                }
+                not { expression { return params.SKIP_SONAR } }
             }
             steps {
                 script {
-                    // Vérification du Quality Gate via l'API SonarQube
-                    def qgStatus = sh(
-                        script: '''
-                            sleep 10
-                            curl -s -u "$SONAR_TOKEN:" \
-                                "http://localhost:9000/api/qualitygates/project_status?projectKey=hr-project-backend" \
-                                | grep -o '"status":"[^"]*"' | head -1
-                        ''',
-                        returnStdout: true
-                    ).trim()
-                    echo "Quality Gate : ${qgStatus}"
-                    if (qgStatus.contains('ERROR')) {
-                        error("Quality Gate FAILED — ${qgStatus}")
+                    withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                        def qgStatus = sh(
+                            script: '''
+                                sleep 10
+                                curl -s -u "$SONAR_TOKEN:" \
+                                    "http://localhost:9000/api/qualitygates/project_status?projectKey=hr-project-backend" \
+                                    | grep -o '"status":"[^"]*"' | head -1
+                            ''',
+                            returnStdout: true
+                        ).trim()
+                        echo "Quality Gate : ${qgStatus}"
+                        if (qgStatus.contains('ERROR')) {
+                            error("Quality Gate FAILED — ${qgStatus}")
+                        }
                     }
                 }
             }
@@ -339,12 +335,17 @@ pipeline {
     // ── POST-PIPELINE ─────────────────────────────────────────────────────────
     post {
         always {
-            // sh n'est pas utilisé ici car le contexte workspace peut être perdu
-            // après des stages parallèles — docker logout est géré dans stage 8
-            cleanWs(cleanWhenNotBuilt: false,
-                    deleteDirs: true,
-                    disableDeferredWipeout: true,
-                    notFailBuild: true)
+            script {
+                // cleanWs peut échouer si le node n'est plus disponible (ex: crash précoce)
+                try {
+                    cleanWs(cleanWhenNotBuilt: false,
+                            deleteDirs: true,
+                            disableDeferredWipeout: true,
+                            notFailBuild: true)
+                } catch (ignored) {
+                    echo "Nettoyage workspace ignoré (pas de contexte node)"
+                }
+            }
         }
         success {
             echo "Pipeline réussie — image tag: ${env.IMAGE_TAG ?: 'N/A'}"
