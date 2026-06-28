@@ -1,0 +1,129 @@
+version: '3.8'
+
+# ─── Docker Compose — Production ──────────────────────────────────────────────
+# Usage :
+#   export IMAGE_TAG=42-abc1234
+#   export DOCKER_REGISTRY=ichahbani
+#   export JWT_SECRET=...
+#   export DB_PASSWORD=...
+#   docker compose -f docker-compose.prod.yml up -d
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: hr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       hr_db
+      POSTGRES_USER:     hr_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-hr_password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - hr-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hr_user -d hr_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: hr-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME:   2000
+    volumes:
+      - zk-data:/var/lib/zookeeper/data
+      - zk-log:/var/lib/zookeeper/log
+    networks:
+      - hr-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: hr-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID:                        1
+      KAFKA_ZOOKEEPER_CONNECT:                zookeeper:2181
+      # Listeners internes (container-to-container)
+      KAFKA_LISTENERS:                        PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS:             PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS:              24
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - hr-network
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Applications ─────────────────────────────────────────────────────────────
+  hr-backend:
+    image: ${DOCKER_REGISTRY:-ichahbani}/hr-backend:${IMAGE_TAG:-latest}
+    container_name: hr-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Base de données
+      DB_URL:      jdbc:postgresql://postgres:5432/hr_db
+      DB_USERNAME: hr_user
+      DB_PASSWORD: ${DB_PASSWORD:-hr_password}
+      # JWT
+      JWT_SECRET:     ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-3600000}
+      # Kafka (container-to-container)
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # Google Vertex AI
+      GOOGLE_CLOUD_PROJECT: ${GCP_PROJECT_ID:-gen-lang-client-0640135018}
+      GOOGLE_CLOUD_LOCATION: ${GCP_LOCATION:-us-central1}
+      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-key.json
+    volumes:
+      - ${GCP_KEY_PATH:-./gcp-key.json}:/app/gcp-key.json:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - hr-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  hr-frontend:
+    image: ${DOCKER_REGISTRY:-ichahbani}/hr-frontend:${IMAGE_TAG:-latest}
+    container_name: hr-frontend
+    restart: unless-stopped
+    depends_on:
+      hr-backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    networks:
+      - hr-network
+
+# ── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  postgres-data:
+  zk-data:
+  zk-log:
+  kafka-data:
+
+# ── Réseau interne ────────────────────────────────────────────────────────────
+networks:
+  hr-network:
+    driver: bridge

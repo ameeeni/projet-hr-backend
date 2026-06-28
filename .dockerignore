@@ -1,0 +1,15 @@
+.git
+.gitignore
+.idea
+*.md
+target/
+!target/*.jar
+.mvn/wrapper/maven-wrapper.jar
+frontend/
+node_modules/
+*.log
+.env
+.env.*
+sonar-project.properties
+docker-compose*.yml
+Jenkinsfile
