@@ -1,0 +1,254 @@
+{
+  "title": "HR IAM — Sécurité & Authentification",
+  "uid": "hr-iam-security",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["hr", "iam", "security", "jwt"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Source",
+        "current": { "selected": true, "text": "Prometheus", "value": "prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Statut IAM",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "targets": [
+        { "refId": "A", "expr": "up{job=\"hr-iam\"}", "legendFormat": "IAM" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Tentatives de login / sec",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 4, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-iam\",uri=~\".*/login.*|.*/auth.*\"}[2m]))",
+          "legendFormat": "login/s"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Échecs d'authentification / sec",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 9, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.1 }, { "color": "red", "value": 1 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-iam\",uri=~\".*/login.*|.*/auth.*\",status=~\"4..|5..\"}[2m]))",
+          "legendFormat": "erreurs/s"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Taux d'échec auth (%)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 14, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.20 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-iam\",uri=~\".*/login.*|.*/auth.*\",status=~\"4..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"hr-iam\",uri=~\".*/login.*|.*/auth.*\"}[5m]))",
+          "legendFormat": "taux échec"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Latence login P95",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.3 }, { "color": "red", "value": 1 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"hr-iam\",uri=~\".*/login.*|.*/auth.*\"}[2m])) by (le))",
+          "legendFormat": "P95 login"
+        }
+      ]
+    },
+
+    {
+      "id": 10,
+      "title": "Volume d'authentification — succès vs échecs",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-iam\",uri=~\".*/login.*|.*/auth.*\",status=~\"2..\"}[2m]))",
+          "legendFormat": "Succès"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-iam\",uri=~\".*/login.*|.*/auth.*\",status=\"401\"}[2m]))",
+          "legendFormat": "401 Non autorisé"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-iam\",uri=~\".*/login.*|.*/auth.*\",status=\"403\"}[2m]))",
+          "legendFormat": "403 Interdit"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Latence endpoints auth (P50/P95/P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{job=\"hr-iam\"}[2m])) by (le, uri))",
+          "legendFormat": "P50 {{uri}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"hr-iam\"}[2m])) by (le, uri))",
+          "legendFormat": "P95 {{uri}}"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"hr-iam\"}[2m])) by (le, uri))",
+          "legendFormat": "P99 {{uri}}"
+        }
+      ]
+    },
+
+    {
+      "id": 20,
+      "title": "Erreurs 401 / 403 — backend HR (JWT invalides reçus)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\",status=\"401\"}[2m])) by (uri)",
+          "legendFormat": "401 {{uri}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\",status=\"403\"}[2m])) by (uri)",
+          "legendFormat": "403 {{uri}}"
+        }
+      ]
+    },
+
+    {
+      "id": 30,
+      "title": "Heap JVM — IAM",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_memory_used_bytes{job=\"hr-iam\",area=\"heap\"}",
+          "legendFormat": "Heap utilisée"
+        },
+        {
+          "refId": "B",
+          "expr": "jvm_memory_max_bytes{job=\"hr-iam\",area=\"heap\"}",
+          "legendFormat": "Heap max"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "Threads JVM — IAM",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_threads_live_threads{job=\"hr-iam\"}",
+          "legendFormat": "Live"
+        },
+        {
+          "refId": "B",
+          "expr": "jvm_threads_daemon_threads{job=\"hr-iam\"}",
+          "legendFormat": "Daemon"
+        }
+      ]
+    },
+
+    {
+      "id": 40,
+      "title": "CPU — IAM vs Backend",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 29 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_cpu_usage{job=\"hr-iam\"}",
+          "legendFormat": "IAM CPU"
+        },
+        {
+          "refId": "B",
+          "expr": "process_cpu_usage{job=\"hr-backend\"}",
+          "legendFormat": "Backend CPU"
+        }
+      ]
+    }
+  ]
+}

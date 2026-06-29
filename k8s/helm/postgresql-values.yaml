@@ -1,0 +1,26 @@
+# ─── Bitnami PostgreSQL — valeurs pour le cluster Minikube ───────────────────
+# Commande d'installation :
+#   helm install hr-postgres bitnami/postgresql \
+#     --namespace hr-project \
+#     -f k8s/helm/postgresql-values.yaml
+
+auth:
+  username: hr_user
+  password: hr_password      # À remplacer par un secret K8s en prod réelle
+  database: hr_db
+
+primary:
+  persistence:
+    enabled: true
+    size: 1Gi                # Réduit pour Minikube (SSD local)
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Service DNS dans le cluster :
+# hr-postgres-postgresql.hr-project.svc.cluster.local:5432

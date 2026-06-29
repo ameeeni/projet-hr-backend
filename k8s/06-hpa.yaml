@@ -1,0 +1,49 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hr-backend-hpa
+  namespace: hr-project
+  labels:
+    app: hr-backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hr-backend
+
+  minReplicas: 1   # Toujours au moins 1 pod actif
+  maxReplicas: 3   # Max 3 pods sur Minikube (limité en ressources)
+
+  metrics:
+    # Scale up si le CPU moyen dépasse 70 %
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # Scale up si la mémoire moyenne dépasse 80 %
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60    # Attend 60s avant de scale up (évite les pics courts)
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60             # Ajoute max 1 pod par minute
+    scaleDown:
+      stabilizationWindowSeconds: 300   # Attend 5 min avant de scale down (évite le flapping)
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120            # Retire max 1 pod toutes les 2 minutes
+
+# Prérequis : metrics-server doit être activé dans Minikube
+# Commande : minikube addons enable metrics-server

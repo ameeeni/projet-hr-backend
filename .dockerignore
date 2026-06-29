@@ -1,15 +1,36 @@
+# ─── Contrôle de source ───────────────────────────────────────────────────────
 .git
 .gitignore
+.gitattributes
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
 .idea
-*.md
+*.iml
+*.iws
+
+# ─── Build output ─────────────────────────────────────────────────────────────
+# On exclut target/ entièrement : le builder recompile à l'intérieur du container.
+# Pas besoin d'exception !target/*.jar — le JAR n'est jamais copié depuis le host.
 target/
-!target/*.jar
-.mvn/wrapper/maven-wrapper.jar
-frontend/
-node_modules/
-*.log
+
+# ─── Secrets et config locaux ─────────────────────────────────────────────────
 .env
 .env.*
-sonar-project.properties
+gcp-key.json
+*.json.key
+
+# ─── CI / DevOps (inutiles pour le build de l'image) ─────────────────────────
+Dockerfile
 docker-compose*.yml
 Jenkinsfile
+sonar-project.properties
+monitoring/
+
+# ─── Claude Code (interne à l'outil) ─────────────────────────────────────────
+.claude/
+
+# ─── Divers ───────────────────────────────────────────────────────────────────
+*.md
+*.log
+node_modules/
+frontend/

@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hr-backend
+  namespace: hr-project
+  labels:
+    app: hr-backend
+    version: "1.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hr-backend
+  template:
+    metadata:
+      labels:
+        app: hr-backend
+        version: "1.0"
+      annotations:
+        # Permet à Prometheus de découvrir automatiquement ce pod et scraper ses métriques
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+
+      # ── Init containers : attendre que Postgres et Kafka soient prêts ────────
+      # Spring Boot retry les connexions, mais les init containers évitent
+      # les erreurs de démarrage et les CrashLoopBackOff inutiles.
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z hr-postgres-postgresql.hr-project.svc.cluster.local 5432; do
+                echo "Attente de PostgreSQL..."; sleep 3
+              done
+              echo "PostgreSQL prêt."
+
+        - name: wait-for-kafka
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z host.docker.internal 9092; do
+                echo "Attente de Kafka..."; sleep 3
+              done
+              echo "Kafka prêt."
+
+      containers:
+        - name: hr-backend
+          # Remplacer "latest" par un tag précis en prod (ex: git sha)
+          image: ichahbani/hr-backend:latest
+          # IfNotPresent : utilise l'image locale si disponible (utile avec minikube image load)
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+
+          # ── Variables d'environnement depuis ConfigMap ──────────────────────
+          envFrom:
+            - configMapRef:
+                name: hr-backend-config
+
+          # ── Variables sensibles depuis Secret ──────────────────────────────
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hr-backend-secret
+                  key: JWT_SECRET
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: hr-backend-secret
+                  key: DB_USERNAME
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hr-backend-secret
+                  key: DB_PASSWORD
+
+          # ── Volume : fichier de credentials GCP ────────────────────────────
+          volumeMounts:
+            - name: gcp-credentials
+              mountPath: /app/secrets
+              readOnly: true
+
+          # ── Ressources : calibrées pour Minikube (1-2 CPU, 2-4 Go RAM) ─────
+          resources:
+            requests:
+              cpu: 250m       # 0.25 CPU garanti au démarrage
+              memory: 512Mi   # Spring Boot + JVM (heap ~384 Mi avec MaxRAMPercentage=75%)
+            limits:
+              cpu: 1000m      # 1 CPU max — évite de saturer Minikube
+              memory: 1Gi     # Si dépassé, le pod est tué (OOMKilled)
+
+          # ── Startup Probe : laisse 3 min au démarrage (Spring Boot + Kafka) ─
+          # Bloque liveness/readiness jusqu'à ce que l'app soit initialisée.
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            failureThreshold: 18   # 18 x 10s = 3 minutes max
+            periodSeconds: 10
+
+          # ── Liveness Probe : redémarre le pod si l'app est bloquée ──────────
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 0   # startupProbe prend le relais au démarrage
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # ── Readiness Probe : retire le pod du Service si pas prêt ──────────
+          # Vérifie que la DB et Kafka sont connectés avant d'envoyer du trafic.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+      # ── Volumes ─────────────────────────────────────────────────────────────
+      volumes:
+        - name: gcp-credentials
+          secret:
+            # Créé par : kubectl create secret generic gcp-credentials --from-file=gcp-key.json=./gcp-key.json -n hr-project
+            secretName: gcp-credentials
+            optional: true   # optional: true évite un échec si Gemini n'est pas utilisé
+
+      # ── Politique de redémarrage ─────────────────────────────────────────────
+      restartPolicy: Always

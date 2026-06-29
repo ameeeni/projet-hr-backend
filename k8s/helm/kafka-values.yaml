@@ -1,0 +1,30 @@
+# ─── Bitnami Kafka (KRaft — sans ZooKeeper) — valeurs pour Minikube ──────────
+# Commande d'installation :
+#   helm install hr-kafka bitnami/kafka \
+#     --namespace hr-project \
+#     -f k8s/helm/kafka-values.yaml
+
+replicaCount: 1              # 1 broker suffit pour le dev / PFA
+
+kraft:
+  enabled: true              # Mode KRaft : plus de ZooKeeper nécessaire
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Listener pour les clients internes au cluster (PLAINTEXT, sans auth)
+listeners:
+  client:
+    protocol: PLAINTEXT
+
+# Service DNS dans le cluster :
+# hr-kafka.hr-project.svc.cluster.local:9092

@@ -1,0 +1,339 @@
+{
+  "title": "HR Backend — Vue d'ensemble",
+  "uid": "hr-backend-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["hr", "backend", "spring-boot"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Source",
+        "current": { "selected": true, "text": "Prometheus", "value": "prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Statut du service",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"hr-backend\"}",
+          "legendFormat": "Backend"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Requêtes/sec (total)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 4, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\"}[2m]))",
+          "legendFormat": "req/s"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Taux d'erreur (4xx+5xx)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 9, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.05 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\",status=~\"4..|5..\"}[2m])) / sum(rate(http_server_requests_seconds_count{job=\"hr-backend\"}[2m]))",
+          "legendFormat": "error rate"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Latence P95",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 14, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 1 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\"}[2m])) by (le))",
+          "legendFormat": "P95"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Heap JVM utilisée",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 0 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 400000000 }, { "color": "red", "value": 700000000 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_memory_used_bytes{job=\"hr-backend\",area=\"heap\"}",
+          "legendFormat": "Heap"
+        }
+      ]
+    },
+
+    {
+      "id": 10,
+      "title": "Taux de requêtes HTTP par statut",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "5xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "4xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\",status=~\"2..\"}[2m]))",
+          "legendFormat": "2xx"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\",status=~\"4..\"}[2m]))",
+          "legendFormat": "4xx"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"hr-backend\",status=~\"5..\"}[2m]))",
+          "legendFormat": "5xx"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Latence HTTP (P50 / P95 / P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\"}[2m])) by (le))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\"}[2m])) by (le))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\"}[2m])) by (le))",
+          "legendFormat": "P99"
+        }
+      ]
+    },
+
+    {
+      "id": 20,
+      "title": "Top 10 endpoints par temps de réponse",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "uid": "${datasource}" },
+      "options": { "sortBy": [{ "displayName": "P95 (s)", "desc": true }] },
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "req/s" }, "properties": [{ "id": "unit", "value": "reqps" }] },
+          { "matcher": { "id": "byName", "options": "errors/s" }, "properties": [{ "id": "unit", "value": "reqps" }, { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"hr-backend\"}[5m])) by (le, uri, method)))",
+          "legendFormat": "{{method}} {{uri}}",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [{ "id": "organize", "options": { "renameByName": { "Value": "P95 (s)" } } }]
+    },
+
+    {
+      "id": 30,
+      "title": "Heap JVM (utilisée vs max)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_memory_used_bytes{job=\"hr-backend\",area=\"heap\"}",
+          "legendFormat": "Heap utilisée"
+        },
+        {
+          "refId": "B",
+          "expr": "jvm_memory_max_bytes{job=\"hr-backend\",area=\"heap\"}",
+          "legendFormat": "Heap max"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "Threads JVM",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_threads_live_threads{job=\"hr-backend\"}",
+          "legendFormat": "Live"
+        },
+        {
+          "refId": "B",
+          "expr": "jvm_threads_daemon_threads{job=\"hr-backend\"}",
+          "legendFormat": "Daemon"
+        },
+        {
+          "refId": "C",
+          "expr": "jvm_threads_peak_threads{job=\"hr-backend\"}",
+          "legendFormat": "Peak"
+        }
+      ]
+    },
+
+    {
+      "id": 40,
+      "title": "Pool DB HikariCP — connexions actives",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "hikaricp_connections_active{job=\"hr-backend\"}",
+          "legendFormat": "Actives"
+        },
+        {
+          "refId": "B",
+          "expr": "hikaricp_connections_idle{job=\"hr-backend\"}",
+          "legendFormat": "Idle"
+        },
+        {
+          "refId": "C",
+          "expr": "hikaricp_connections_pending{job=\"hr-backend\"}",
+          "legendFormat": "En attente"
+        },
+        {
+          "refId": "D",
+          "expr": "hikaricp_connections_max{job=\"hr-backend\"}",
+          "legendFormat": "Max"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "title": "Kafka — messages consommés/s",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "mps" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(kafka_consumer_fetch_manager_records_consumed_total{job=\"hr-backend\"}[2m])) by (topic)",
+          "legendFormat": "topic: {{topic}}"
+        }
+      ]
+    },
+
+    {
+      "id": 50,
+      "title": "GC — Pause time (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(jvm_gc_pause_seconds_sum{job=\"hr-backend\"}[2m])) by (action, cause) * 1000",
+          "legendFormat": "{{action}} ({{cause}})"
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "title": "CPU Process",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "datasource": { "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_cpu_usage{job=\"hr-backend\"}",
+          "legendFormat": "Process CPU"
+        },
+        {
+          "refId": "B",
+          "expr": "system_cpu_usage{job=\"hr-backend\"}",
+          "legendFormat": "System CPU"
+        }
+      ]
+    }
+  ]
+}

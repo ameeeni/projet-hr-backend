@@ -1,0 +1,49 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: hr-project
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+
+  # ── Prometheus itself ────────────────────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── HR Backend (Spring Boot) ─────────────────────────────────────────────────
+  - job_name: hr-backend
+    metrics_path: /actuator/prometheus
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['hr-backend:8080']
+        labels:
+          service: hr-backend
+          layer: api
+
+  # ── HR IAM Service (Spring Boot) ─────────────────────────────────────────────
+  - job_name: hr-iam
+    metrics_path: /actuator/prometheus
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['hr-iam:8081']
+        labels:
+          service: hr-iam
+          layer: security
+
+  # ── PostgreSQL (via postgres_exporter — optionnel) ───────────────────────────
+  # - job_name: postgres
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+
+  # ── Kafka (via jmx_exporter — optionnel) ────────────────────────────────────
+  # - job_name: kafka
+  #   static_configs:
+  #     - targets: ['kafka:9308']

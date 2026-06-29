@@ -1,10 +1,26 @@
 # ─── JWT (partagé avec le service IAM) ───────────────────────────────────────
 jwt:
-  secret: ${JWT_SECRET}
+  # En prod : définir JWT_SECRET comme variable d'environnement (clé Base64, min 256 bits)
+  secret: ${JWT_SECRET:c29tZS1zZWNyZXQta2V5LWZvci1kZXYtZW52aXJvbm1lbnQtaGVyZS0xMjM0}
   expiration: ${JWT_EXPIRATION:3600000}
 
 server:
   port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,loggers
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: hr-backend
+      environment: ${SPRING_PROFILES_ACTIVE:dev}
 
 springdoc:
   api-docs:
